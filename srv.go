@@ -79,14 +79,14 @@ func (s *Srv) Handler(c Conn9) {
 		// Find a way to ID client nicely
 		if s.Debug {
 			//msg.Print()
-			s.Log.Printf("← Tversion tag=%d msize=%d version=\"%s\"", msg.Tag, c.Msize, c.Version)
+			Chatty(s.Log, msg)
 		}
 		
 		rmsg := MkRversion(msg)
 		
 		if s.Debug {
 			//rmsg.Print()
-			s.Log.Printf("→ Rversion tag=%d msize=%d version=\"%s\"", msg.Tag, c.Msize, c.Version)
+			Chatty(s.Log, rmsg, c)
 		}
 		
 		_, err := c.Conn.Write(rmsg.Full)

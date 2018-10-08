@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	// Heresy
 	"fmt"
+	"log"
 )
 
 
@@ -39,7 +40,6 @@ const (
 	Twstat 	
 	Rwstat
 	Tmax
-	Invalid
 )
 
 // Lengths of various 9p elements in bytes -- see intro(5)
@@ -102,7 +102,7 @@ type Msg struct {
 
 
 // For debugging, mostly
-func (m Msg) Print() {
+func (m *Msg) Print() {
 	fmt.Println("---")
 	fmt.Println("Size:", m.Size)
 	fmt.Println("Type:", m.T)
@@ -112,8 +112,22 @@ func (m Msg) Print() {
 }
 
 // Returns the payload of a Msg
-func (m Msg) Payload() []byte {
+func (m *Msg) Payload() []byte {
 	return m.Full[PrefixLen:]
+}
+
+// Chattily spew debug output
+func Chatty(l *log.Logger, m Msg, extra ...interface{}) {
+	switch m.T {
+		case Tversion:
+			l.Printf("← Tversion tag=%d msize=%d version=\"%s\"", m.Tag, m.Extra["msize"], m.Extra["version"])
+		case Rversion:
+			if len(extra) >= 1 {
+				l.Printf("→ Rversion tag=%d msize=%d version=\"%s\"", m.Tag, (extra[0]).(Conn9).Msize, (extra[0]).(Conn9).Version)
+			}
+		default:
+			l.Printf("× invalid type: ", m.T)
+	}
 }
 
 // Identify a message's type and operate accordingly -- both srv and client use
@@ -140,17 +154,6 @@ func Parse(buf []byte) (Msg, byte) {
 	return msg, msg.T
 }
 
-// Get extra fields for Tversion
-func (msg *Msg) ReadTversion() (msize uint32, version string) {
-	msize = binary.LittleEndian.Uint32(msg.Payload()[:4])
-	msg.Extra["msize"] = msize
-
-	version = string(msg.Payload()[MsizeLen+1:])
-	msg.Extra["version"] = version
-
-	return
-}
-
 // Create prefix for a Msg
 func MkMsg(msgT byte, msgTag uint16) Msg {
 	var msg Msg
@@ -158,7 +161,6 @@ func MkMsg(msgT byte, msgTag uint16) Msg {
 	
 	// Append type
 	typeBuf := ByteToBytes(msgT)
-	fmt.Println(typeBuf)
 	buf = append(buf, typeBuf...)
 
 	// Append tag
@@ -170,6 +172,17 @@ func MkMsg(msgT byte, msgTag uint16) Msg {
 	msg.T = msgT
 	
 	return msg
+}
+
+// Get extra fields for Tversion
+func (msg *Msg) ReadTversion() (msize uint32, version string) {
+	msize = binary.LittleEndian.Uint32(msg.Payload()[:4])
+	msg.Extra["msize"] = msize
+
+	version = string(msg.Payload()[MsizeLen+1:])
+	msg.Extra["version"] = version
+
+	return
 }
 
 // Write an Rversion -- Call after reading a Tversion
