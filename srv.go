@@ -82,18 +82,14 @@ func (s *Srv) Handler(c Conn9) {
 			s.Log.Printf("← Tversion tag=%d msize=%d version=\"%s\"", msg.Tag, c.Msize, c.Version)
 		}
 		
-		rmsg, err := MkRversion(msg)
-		if err != nil {
-			s.Log.Print("Error, failure creating Rversion: ", err)
-			return
-		}
+		rmsg := MkRversion(msg)
 		
 		if s.Debug {
 			//rmsg.Print()
 			s.Log.Printf("→ Rversion tag=%d msize=%d version=\"%s\"", msg.Tag, c.Msize, c.Version)
 		}
 		
-		_, err = c.Conn.Write(rmsg.Full)
+		_, err := c.Conn.Write(rmsg.Full)
 		if err != nil {
 			s.Log.Print("Error, sending Rversion: ", err)
 			return

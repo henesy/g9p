@@ -6,6 +6,7 @@ import (
 	// Heresy
 	"fmt"
 	"os"
+	"unsafe"
 )
 
 
@@ -98,7 +99,6 @@ type Msg struct {
 	Size	uint32
 	T		uint8
 	Tag		uint16
-	Payload	[]byte
 	Full	[]byte
 	Extra	map[string]interface{}
 }
@@ -110,10 +110,48 @@ func (m Msg) Print() {
 	fmt.Println("Size:", m.Size)
 	fmt.Println("Type:", m.T)
 	fmt.Println("Tag:", m.Tag)
-	fmt.Println("Payload size:", len(m.Payload))
+	fmt.Println("Payload size:", len(m.Payload()))
 	fmt.Println("---")
 }
 
+// Returns the payload of a Msg
+func (m Msg) Payload() []byte {
+	return m.Full[PrefixLen:]
+}
+
+
+// Convert uint32 to []byte -- little endian
+func U32ToBytes(num uint32) []byte {
+	width := unsafe.Sizeof(num)
+	buf := bytes.NewBuffer(make([]byte, width))
+	
+	err := binary.Write(buf, binary.LittleEndian, num)
+	if err != nil {
+		// Maybe add something for this later
+		fmt.Fprintln(os.Stderr, "Error, unable to set uint32: ", err)
+		return []byte{}
+	}
+	
+	bytesBuf := buf.Bytes()[width:]
+
+	return bytesBuf
+}
+
+// Convert byte to []byte -- little endian
+func ByteToBytes(msgB byte) []byte {
+	width := unsafe.Sizeof(msgB)
+	buf := bytes.NewBuffer(make([]byte, width))
+	
+	err := binary.Write(buf, binary.LittleEndian, msgB)
+	if err != nil {
+		// Maybe add something for this later
+		fmt.Fprintln(os.Stderr, "Error, unable to set byte: ", err)
+		return []byte{}
+	}
+	
+	bytesBuf := buf.Bytes()[width:]
+	return bytesBuf
+}
 
 // Identify a message's type and operate accordingly -- both srv and client use
 func Parse(buf []byte) (Msg, byte) {
@@ -136,7 +174,7 @@ func Parse(buf []byte) (Msg, byte) {
 	msg.Tag = binary.LittleEndian.Uint16(buf[SizeLen+TypeLen:SizeLen+TypeLen+TagLen])
 	
 	// Payload
-	msg.Payload = buf[PrefixLen:msg.Size]
+	//msg.Payload = buf[PrefixLen:msg.Size]
 	
 	// Extra
 	msg.Extra = make(map[string]interface{})
@@ -146,58 +184,52 @@ func Parse(buf []byte) (Msg, byte) {
 
 // Get extra fields for Tversion
 func (msg *Msg) ReadTversion() (msize uint32, version string) {
-	msize = binary.LittleEndian.Uint32(msg.Payload[:4])
+	msize = binary.LittleEndian.Uint32(msg.Payload()[:4])
 	msg.Extra["msize"] = msize
 
-	version = string(msg.Payload[MsizeLen+1:])
+	version = string(msg.Payload()[MsizeLen+1:])
 	msg.Extra["version"] = version
 
 	return
 }
 
-// Write an Rversion -- Call after reading a Tversion ;; maybe move to Msg.Send() or otherwise break things up?
-func MkRversion(msg Msg) (Msg, error) {
-	var rmsg Msg
+// Create prefix for a Msg
+func MkMsg(msgT byte, msgTag uint16) Msg {
+	var msg Msg
 	var buf []byte
-
+	
 	// Append type
-	t := bytes.NewBuffer(make([]byte, TypeLen))
-	
-	err := binary.Write(t, binary.LittleEndian, Rversion)
-	if err != nil {
-		// Maybe add something for this later
-		fmt.Fprintln(os.Stderr, "Error, unable to set type: ", err)
-		return rmsg, err
-	}
-	
-	typeBuf := t.Bytes()[TypeLen:]
+	typeBuf := ByteToBytes(msgT)
+	fmt.Println(typeBuf)
 	buf = append(buf, typeBuf...)
 
 	// Append tag
 	tag := bytes.NewBuffer(make([]byte, TagLen))
 	
-	err = binary.Write(tag, binary.LittleEndian, msg.Tag)
+	err := binary.Write(tag, binary.LittleEndian, msgTag)
 	if err != nil {
 		// Maybe add something for this later
 		fmt.Fprintln(os.Stderr, "Error, unable to set tag: ", err)
-		return rmsg, err
+		return msg
 	}
 	
 	tagBuf := tag.Bytes()[TagLen:]
 	buf = append(buf, tagBuf...)
+	
+	msg.Full = buf
+	msg.Tag = msgTag
+	msg.T = msgT
+	
+	return msg
+}
+
+// Write an Rversion -- Call after reading a Tversion
+func MkRversion(msg Msg) (Msg) {
+	rmsg := MkMsg(Rversion, msg.Tag)
 
 	// Append msize
-	msize := bytes.NewBuffer(make([]byte, MsizeLen))
-	
-	err = binary.Write(msize, binary.LittleEndian, (msg.Extra["msize"]).(uint32))
-	if err != nil {
-		// Maybe add something for this later
-		fmt.Fprintln(os.Stderr, "Error, unable to set msize: ", err)
-		return rmsg, err
-	}
-	
-	msizeBuf := msize.Bytes()[MsizeLen:]
-	buf = append(buf, msizeBuf...)
+	msizeBuf := U32ToBytes((msg.Extra["msize"]).(uint32))
+	rmsg.Full = append(rmsg.Full, msizeBuf...)
 
 	// Append version
 	vStr := (msg.Extra["version"]).(string)
@@ -206,29 +238,18 @@ func MkRversion(msg Msg) (Msg, error) {
 	// This is magic discovered through trial and error, why does this exist?
 	vBuf[0] = byte(0x6)
 	vBuf = append(vBuf, []byte(vStr)[:len(vStr)]...)
-	buf = append(buf, vBuf...)
+	rmsg.Full = append(rmsg.Full, vBuf...)
 
 	// Prepend size
 	// 4 bytes for size
-	sizeBytes := uint32(len(buf) + SizeLen)
-	size := bytes.NewBuffer(make([]byte, SizeLen))
-	
-	err = binary.Write(size, binary.LittleEndian, sizeBytes)
-	if err != nil {
-		// Maybe add something for this later
-		fmt.Fprintln(os.Stderr, "Error, unable to set size: ", err)
-		return rmsg, err
-	}
-	
-	sizeBuf := size.Bytes()[SizeLen:]
-	buf = append(sizeBuf, buf...)
+	sizeBytes := uint32(len(rmsg.Full) + SizeLen)
+	sizeBuf := U32ToBytes(sizeBytes)
+	rmsg.Full = append(sizeBuf, rmsg.Full...)
 
 	// Load rmsg
 	rmsg.Size = sizeBytes
 	rmsg.Tag = msg.Tag
 	rmsg.T = Rversion
-	rmsg.Full = buf
-	rmsg.Payload = buf[PrefixLen:]
 	
-	return rmsg, err
+	return rmsg
 }
