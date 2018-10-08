@@ -2,11 +2,8 @@ package g9p
 
 import (
 	"encoding/binary"
-	"bytes"
 	// Heresy
 	"fmt"
-	"os"
-	"unsafe"
 )
 
 
@@ -119,57 +116,6 @@ func (m Msg) Payload() []byte {
 	return m.Full[PrefixLen:]
 }
 
-
-// Convert uint32 to []byte -- little endian
-func U32ToBytes(num uint32) []byte {
-	width := unsafe.Sizeof(num)
-	buf := bytes.NewBuffer(make([]byte, width))
-	
-	err := binary.Write(buf, binary.LittleEndian, num)
-	if err != nil {
-		// Maybe add something for this later
-		fmt.Fprintln(os.Stderr, "Error, unable to set uint32: ", err)
-		return []byte{}
-	}
-	
-	bytesBuf := buf.Bytes()[width:]
-
-	return bytesBuf
-}
-
-// Convert uint16 to []byte -- little endian
-func U16ToBytes(num uint16) []byte {
-	width := unsafe.Sizeof(num)
-	buf := bytes.NewBuffer(make([]byte, width))
-	
-	err := binary.Write(buf, binary.LittleEndian, num)
-	if err != nil {
-		// Maybe add something for this later
-		fmt.Fprintln(os.Stderr, "Error, unable to set uint16: ", err)
-		return []byte{}
-	}
-	
-	bytesBuf := buf.Bytes()[width:]
-
-	return bytesBuf
-}
-
-// Convert byte to []byte -- little endian
-func ByteToBytes(msgB byte) []byte {
-	width := unsafe.Sizeof(msgB)
-	buf := bytes.NewBuffer(make([]byte, width))
-	
-	err := binary.Write(buf, binary.LittleEndian, msgB)
-	if err != nil {
-		// Maybe add something for this later
-		fmt.Fprintln(os.Stderr, "Error, unable to set byte: ", err)
-		return []byte{}
-	}
-	
-	bytesBuf := buf.Bytes()[width:]
-	return bytesBuf
-}
-
 // Identify a message's type and operate accordingly -- both srv and client use
 func Parse(buf []byte) (Msg, byte) {
 	var msg Msg
@@ -180,15 +126,10 @@ func Parse(buf []byte) (Msg, byte) {
 	msg.Full = buf[:msg.Size]
 	
 	// Type
-	err := binary.Read(bytes.NewReader(buf[SizeLen:SizeLen+TypeLen]), binary.LittleEndian, &msg.T)
-	if err != nil {
-		// Maybe add something for this later
-		fmt.Fprintln(os.Stderr, "Error, unable to get type: ", err)
-		return msg, Invalid
-	}
+	msg.T = BytesToByte(buf[SizeLen:SizeLen+TypeLen])
 	
 	// Tag
-	msg.Tag = binary.LittleEndian.Uint16(buf[SizeLen+TypeLen:SizeLen+TypeLen+TagLen])
+	msg.Tag = binary.LittleEndian.Uint16(buf[SizeLen+TypeLen:PrefixLen])
 	
 	// Payload
 	//msg.Payload = buf[PrefixLen:msg.Size]
