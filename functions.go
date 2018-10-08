@@ -49,6 +49,7 @@ const SizeLen = 4
 const TypeLen = 1
 const TagLen = 2
 const MsizeLen = 4
+const PrefixLen = SizeLen+TypeLen+TagLen
 
 /* Snagged from droyo's styx */
 // QidLen is the length of a Qid in bytes.
@@ -98,16 +99,19 @@ type Msg struct {
 	T		uint8
 	Tag		uint16
 	Payload	[]byte
-	Orig	[]byte
+	Full	[]byte
+	Extra	map[string]interface{}
 }
 
 
 // For debugging, mostly
 func (m Msg) Print() {
+	fmt.Println("---")
 	fmt.Println("Size:", m.Size)
 	fmt.Println("Type:", m.T)
 	fmt.Println("Tag:", m.Tag)
 	fmt.Println("Payload size:", len(m.Payload))
+	fmt.Println("---")
 }
 
 
@@ -118,7 +122,7 @@ func Parse(buf []byte) (Msg, byte) {
 	// Size
 	msg.Size = binary.LittleEndian.Uint32(buf[:SizeLen])
 	
-	msg.Orig = buf[:msg.Size]
+	msg.Full = buf[:msg.Size]
 	
 	// Type
 	err := binary.Read(bytes.NewReader(buf[SizeLen:SizeLen+TypeLen]), binary.LittleEndian, &msg.T)
@@ -132,22 +136,28 @@ func Parse(buf []byte) (Msg, byte) {
 	msg.Tag = binary.LittleEndian.Uint16(buf[SizeLen+TypeLen:SizeLen+TypeLen+TagLen])
 	
 	// Payload
-	msg.Payload = buf[SizeLen+TypeLen+TagLen:msg.Size]
+	msg.Payload = buf[PrefixLen:msg.Size]
+	
+	// Extra
+	msg.Extra = make(map[string]interface{})
 
 	return msg, msg.T
 }
 
 // Get extra fields for Tversion
-func ReadTversion(msg Msg) (msize uint32, version string) {
+func (msg *Msg) ReadTversion() (msize uint32, version string) {
 	msize = binary.LittleEndian.Uint32(msg.Payload[:4])
+	msg.Extra["msize"] = msize
 
 	version = string(msg.Payload[MsizeLen+1:])
+	msg.Extra["version"] = version
 
 	return
 }
 
 // Write an Rversion -- Call after reading a Tversion ;; maybe move to Msg.Send() or otherwise break things up?
-func (c *Conn9) Rversion(msg Msg) error {
+func MkRversion(msg Msg) (Msg, error) {
+	var rmsg Msg
 	var buf []byte
 
 	// Append type
@@ -157,10 +167,11 @@ func (c *Conn9) Rversion(msg Msg) error {
 	if err != nil {
 		// Maybe add something for this later
 		fmt.Fprintln(os.Stderr, "Error, unable to set type: ", err)
-		return err
+		return rmsg, err
 	}
 	
-	buf = append(buf, t.Bytes()...)
+	typeBuf := t.Bytes()[TypeLen:]
+	buf = append(buf, typeBuf...)
 
 	// Append tag
 	tag := bytes.NewBuffer(make([]byte, TagLen))
@@ -169,26 +180,34 @@ func (c *Conn9) Rversion(msg Msg) error {
 	if err != nil {
 		// Maybe add something for this later
 		fmt.Fprintln(os.Stderr, "Error, unable to set tag: ", err)
-		return err
+		return rmsg, err
 	}
 	
-	buf = append(buf, tag.Bytes()...)
-	
+	tagBuf := tag.Bytes()[TagLen:]
+	buf = append(buf, tagBuf...)
+
 	// Append msize
 	msize := bytes.NewBuffer(make([]byte, MsizeLen))
 	
-	err = binary.Write(msize, binary.LittleEndian, c.Msize)
+	err = binary.Write(msize, binary.LittleEndian, (msg.Extra["msize"]).(uint32))
 	if err != nil {
 		// Maybe add something for this later
 		fmt.Fprintln(os.Stderr, "Error, unable to set msize: ", err)
-		return err
+		return rmsg, err
 	}
 	
-	buf = append(buf, msize.Bytes()...)
+	msizeBuf := msize.Bytes()[MsizeLen:]
+	buf = append(buf, msizeBuf...)
 
 	// Append version
-	buf = append(buf, []byte(c.Version)...)
-	
+	vStr := (msg.Extra["version"]).(string)
+	vBuf := make([]byte, 1)
+
+	// This is magic discovered through trial and error, why does this exist?
+	vBuf[0] = byte(0x6)
+	vBuf = append(vBuf, []byte(vStr)[:len(vStr)]...)
+	buf = append(buf, vBuf...)
+
 	// Prepend size
 	// 4 bytes for size
 	sizeBytes := uint32(len(buf) + SizeLen)
@@ -198,15 +217,18 @@ func (c *Conn9) Rversion(msg Msg) error {
 	if err != nil {
 		// Maybe add something for this later
 		fmt.Fprintln(os.Stderr, "Error, unable to set size: ", err)
-		return err
+		return rmsg, err
 	}
+	
+	sizeBuf := size.Bytes()[SizeLen:]
+	buf = append(sizeBuf, buf...)
 
-	buf = append(size.Bytes(), buf...)
+	// Load rmsg
+	rmsg.Size = sizeBytes
+	rmsg.Tag = msg.Tag
+	rmsg.T = Rversion
+	rmsg.Full = buf
+	rmsg.Payload = buf[PrefixLen:]
 	
-	fmt.Println(msg.Orig)
-	fmt.Println(sizeBytes)
-	fmt.Println(buf)
-	
-	_, err = c.Conn.Write(buf)
-	return err
+	return rmsg, err
 }

@@ -35,7 +35,7 @@ func MkSrv(protocol string, port string, versions ...string) (Srv, error) {
 		log.Print("Error, unable to open listener: ", err)
 		return srv, err
 	}
-	srv.Log = log.New(os.Stderr, "> ", log.Ldate | log.Ltime | log.Llongfile)
+	srv.Log = log.New(os.Stderr, "", log.Ldate | log.Ltime | log.Lshortfile)
 	srv.L = listener
 	srv.Versions = versions
 	// Sensible default
@@ -74,20 +74,33 @@ func (s *Srv) Handler(c Conn9) {
 	c.Conn.Read(buf)
 	if msg, mt := Parse(buf); mt == Tversion {
 		// Read Tversion call
-		c.Msize, c.Version = ReadTversion(msg)
+		c.Msize, c.Version = msg.ReadTversion()
 		
 		// Find a way to ID client nicely
 		if s.Debug {
-			msg.Print()
-			s.Log.Print("Msize: ", c.Msize, " Version: ", c.Version)
+			//msg.Print()
+			s.Log.Printf("← Tversion tag=%d msize=%d version=\"%s\"", msg.Tag, c.Msize, c.Version)
 		}
 		
-		err := c.Rversion(msg)
+		rmsg, err := MkRversion(msg)
 		if err != nil {
-			s.Log.Print("Error, failure writing Rversion: ", err)
+			s.Log.Print("Error, failure creating Rversion: ", err)
+			return
+		}
+		
+		if s.Debug {
+			//rmsg.Print()
+			s.Log.Printf("→ Rversion tag=%d msize=%d version=\"%s\"", msg.Tag, c.Msize, c.Version)
+		}
+		
+		_, err = c.Conn.Write(rmsg.Full)
+		if err != nil {
+			s.Log.Print("Error, sending Rversion: ", err)
+			return
 		}
 	} else {
 		c.Rerror("Expected Tversion")
+		return
 	}
 
 	for {
