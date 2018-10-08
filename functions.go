@@ -137,6 +137,23 @@ func U32ToBytes(num uint32) []byte {
 	return bytesBuf
 }
 
+// Convert uint16 to []byte -- little endian
+func U16ToBytes(num uint16) []byte {
+	width := unsafe.Sizeof(num)
+	buf := bytes.NewBuffer(make([]byte, width))
+	
+	err := binary.Write(buf, binary.LittleEndian, num)
+	if err != nil {
+		// Maybe add something for this later
+		fmt.Fprintln(os.Stderr, "Error, unable to set uint16: ", err)
+		return []byte{}
+	}
+	
+	bytesBuf := buf.Bytes()[width:]
+
+	return bytesBuf
+}
+
 // Convert byte to []byte -- little endian
 func ByteToBytes(msgB byte) []byte {
 	width := unsafe.Sizeof(msgB)
@@ -204,16 +221,7 @@ func MkMsg(msgT byte, msgTag uint16) Msg {
 	buf = append(buf, typeBuf...)
 
 	// Append tag
-	tag := bytes.NewBuffer(make([]byte, TagLen))
-	
-	err := binary.Write(tag, binary.LittleEndian, msgTag)
-	if err != nil {
-		// Maybe add something for this later
-		fmt.Fprintln(os.Stderr, "Error, unable to set tag: ", err)
-		return msg
-	}
-	
-	tagBuf := tag.Bytes()[TagLen:]
+	tagBuf := U16ToBytes(msgTag)
 	buf = append(buf, tagBuf...)
 	
 	msg.Full = buf
