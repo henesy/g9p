@@ -4,7 +4,6 @@ import (
 	"encoding/binary"
 	// Heresy
 	"fmt"
-	"log"
 )
 
 
@@ -117,21 +116,21 @@ func (m *Msg) Payload() []byte {
 }
 
 // Chattily spew debug output
-func Chatty(l *log.Logger, m Msg, extra ...interface{}) {
+func Chatty(m Msg, extra ...interface{}) {
 	switch m.T {
 		case Tversion:
-			l.Printf("← Tversion tag=%d msize=%d version=\"%s\"", m.Tag, m.Extra["msize"], m.Extra["version"])
+			Log.Printf("← Tversion tag=%d msize=%d version=\"%s\"", m.Tag, m.Extra["msize"], m.Extra["version"])
 		case Rversion:
 			if len(extra) >= 1 {
-				l.Printf("→ Rversion tag=%d msize=%d version=\"%s\"", m.Tag, (extra[0]).(Conn9).Msize, (extra[0]).(Conn9).Version)
+				Log.Printf("→ Rversion tag=%d msize=%d version=\"%s\"", m.Tag, (extra[0]).(*Conn9).Msize, (extra[0]).(*Conn9).Version)
 			}
 		default:
-			l.Printf("× invalid type: ", m.T)
+			Log.Printf("× invalid type: ", m.T)
 	}
 }
 
 // Identify a message's type and operate accordingly -- both srv and client use
-func Parse(buf []byte) (Msg, byte) {
+func Parse(buf []byte) (Msg) {
 	var msg Msg
 	
 	// Size
@@ -150,8 +149,14 @@ func Parse(buf []byte) (Msg, byte) {
 	
 	// Extra
 	msg.Extra = make(map[string]interface{})
+	
+	// Switch on message type and read respectively
+	switch(msg.T) {
+	case Tversion:
+		msg.ReadTversion()
+	}
 
-	return msg, msg.T
+	return msg
 }
 
 // Create prefix for a Msg
@@ -174,18 +179,31 @@ func MkMsg(msgT byte, msgTag uint16) Msg {
 	return msg
 }
 
-// Get extra fields for Tversion
+// Prepend size to message; return size of msg in bytes
+func (msg *Msg) MkSize() uint32 {
+	// 4 bytes for size
+	sizeBytes := uint32(len(msg.Full) + SizeLen)
+	sizeBuf := U32ToBytes(sizeBytes)
+	msg.Full = append(sizeBuf, msg.Full...)
+	return sizeBytes
+}
+
+// Read a Tversion
 func (msg *Msg) ReadTversion() (msize uint32, version string) {
 	msize = binary.LittleEndian.Uint32(msg.Payload()[:4])
 	msg.Extra["msize"] = msize
 
 	version = string(msg.Payload()[MsizeLen+1:])
 	msg.Extra["version"] = version
+	
+	if Debug {
+		Chatty(*msg)
+	}
 
 	return
 }
 
-// Write an Rversion -- Call after reading a Tversion
+// Create an Rversion -- Call after reading a Tversion
 func MkRversion(msg Msg) (Msg) {
 	rmsg := MkMsg(Rversion, msg.Tag)
 
@@ -203,15 +221,67 @@ func MkRversion(msg Msg) (Msg) {
 	rmsg.Full = append(rmsg.Full, vBuf...)
 
 	// Prepend size
-	// 4 bytes for size
-	sizeBytes := uint32(len(rmsg.Full) + SizeLen)
-	sizeBuf := U32ToBytes(sizeBytes)
-	rmsg.Full = append(sizeBuf, rmsg.Full...)
+	sizeBytes := rmsg.MkSize()
 
 	// Load rmsg
 	rmsg.Size = sizeBytes
 	rmsg.Tag = msg.Tag
 	rmsg.T = Rversion
 	
+	return rmsg
+}
+
+// Read Tauth
+func (msg *Msg) ReadTauth() {
+	// TODO
+}
+
+// Create an Rauth
+func MkRauth(msg Msg) (Msg) {
+	rmsg := MkMsg(Rauth, msg.Tag)
+	
+	// TODO
+	
+	return rmsg
+}
+
+// Read Tattach
+func (msg *Msg) ReadTattach() {
+	// TODO
+	
+	// Read fid
+	
+	// Read afid
+	
+	// Read uname
+	
+	// Read aname
+	
+	if Debug {
+		Chatty(*msg)
+	}
+
+	return	
+}
+
+// Creat an Rattach -- Call after reading a Tattach
+func MkRattach(msg Msg) (Msg) {
+	rmsg := MkMsg(Rauth, msg.Tag)
+	// Get qid for requested file
+	
+	// TODO
+	
+	return rmsg
+}
+
+// The only one allowed to throw errors is me, Dio
+func MkRerror(str string, msg *Msg) Msg {
+	rmsg := MkMsg(Rerror, msg.Tag)
+	
+	// Add string -- maybe check ERRMAX?
+	buf := []byte(str)
+	rmsg.Full = append(rmsg.Full, buf...)
+	rmsg.MkSize()
+
 	return rmsg
 }

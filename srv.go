@@ -7,6 +7,9 @@ import (
 	"time"
 )
 
+// Globals suck, extra arguments to everything suck more
+var Log	*log.Logger
+var Debug		bool
 
 // Represents a connection over 9p
 type Conn9 struct {
@@ -17,15 +20,23 @@ type Conn9 struct {
 
 // Represents a server for 9p
 type Srv struct {
-	Log		*log.Logger
 	L		net.Listener
 	// Supported versions
 	Versions	[]string
 	// Default msize
 	Msize		uint32
-	Debug		bool
 }
 
+
+// Send Msg over connection (and log)
+func (c *Conn9) Send(msg Msg) error {
+	if Debug {
+		Chatty(msg, c)
+	}
+
+	_, err := c.Conn.Write(msg.Full)
+	return err
+}
 
 // Start a new listener and process 9p connections ;; takes a list of supported 9p versions
 func MkSrv(protocol string, port string, versions ...string) (Srv, error) {
@@ -35,12 +46,12 @@ func MkSrv(protocol string, port string, versions ...string) (Srv, error) {
 		log.Print("Error, unable to open listener: ", err)
 		return srv, err
 	}
-	srv.Log = log.New(os.Stderr, "", log.Ldate | log.Ltime | log.Lshortfile)
+	Log = log.New(os.Stderr, "", log.Ldate | log.Ltime | log.Lshortfile)
 	srv.L = listener
 	srv.Versions = versions
 	// Sensible default
 	srv.Msize = 8216
-	srv.Debug = true
+	Debug = true
 
 	return srv, nil
 }
@@ -55,7 +66,7 @@ func (s *Srv) Listener() {
 	for {
 		conn, err := s.L.Accept()
 		if err != nil {
-			s.Log.Print("Error, unable to accept conn: ", err)
+			Log.Print("Error, unable to accept conn: ", err)
 			continue
 		}
 
@@ -72,30 +83,20 @@ func (s *Srv) Handler(c Conn9) {
 	// Negotiate version
 	buf := make([]byte, c.Msize)
 	c.Conn.Read(buf)
-	if msg, mt := Parse(buf); mt == Tversion {
-		// Read Tversion call
-		c.Msize, c.Version = msg.ReadTversion()
+	if msg := Parse(buf); msg.T == Tversion {
+		// Accept versions -- should check if supported
+		c.Msize, c.Version = msg.Extra["msize"].(uint32), msg.Extra["version"].(string)
 		
-		// Find a way to ID client nicely
-		if s.Debug {
-			//msg.Print()
-			Chatty(s.Log, msg)
-		}
-		
+		// TODO - Find a way to ID client nicely
 		rmsg := MkRversion(msg)
 		
-		if s.Debug {
-			//rmsg.Print()
-			Chatty(s.Log, rmsg, c)
-		}
-		
-		_, err := c.Conn.Write(rmsg.Full)
+		err := c.Send(rmsg)
 		if err != nil {
-			s.Log.Print("Error, sending Rversion: ", err)
+			Log.Print("Error, sending Rversion: ", err)
 			return
 		}
 	} else {
-		c.Rerror("Expected Tversion")
+		c.Send(MkRerror("Expected Tversion", &msg))
 		return
 	}
 
@@ -110,10 +111,3 @@ func (s *Srv) Handler(c Conn9) {
 	}
 }
 
-// The only one allowed to throw errors is me, Dio
-func (c *Conn9) Rerror(msg string) error {
-	// TODO
-	c.Conn.Write([]byte(msg))
-
-	return nil
-}
