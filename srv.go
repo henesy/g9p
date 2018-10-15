@@ -38,6 +38,15 @@ func (c *Conn9) Send(msg Msg) error {
 	return err
 }
 
+// Read and parse a message
+func (c *Conn9) Read() (msg Msg, err error) {
+	err = nil
+	buf := make([]byte, c.Msize)
+	_, err = c.Conn.Read(buf)
+	msg = Parse(buf)
+	return msg, err
+}
+
 // Start a new listener and process 9p connections ;; takes a list of supported 9p versions
 func MkSrv(protocol string, port string, versions ...string) (Srv, error) {
 	var srv Srv
@@ -81,9 +90,12 @@ func (s *Srv) Listener() {
 // Handle incoming 9p connections
 func (s *Srv) Handler(c Conn9) {
 	// Negotiate version
-	buf := make([]byte, c.Msize)
-	c.Conn.Read(buf)
-	if msg := Parse(buf); msg.T == Tversion {
+	msg, err := c.Read()
+	if err != nil {
+		Log.Println("Error, bad read from client: ", err)
+		return
+	}
+	if msg.T == Tversion {
 		// Accept versions -- should check if supported
 		c.Msize, c.Version = msg.Extra["msize"].(uint32), msg.Extra["version"].(string)
 		
