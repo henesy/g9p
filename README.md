@@ -1,9 +1,9 @@
 # 9p
-Utilitarian 9p library for Go
+Utilitarian 9p library for Go.
 
 ## Dependencies
 
-None.
+- [github.com/henesy/fstrie](https://github.com/henesy/fstrie)
 
 ## Working
 

@@ -8,8 +8,8 @@ import (
 )
 
 // Globals suck, extra arguments to everything suck more
-var Log	*log.Logger
-var Debug		bool
+var Log		*log.Logger
+var Debug	bool
 
 // Represents a connection over 9p
 type Conn9 struct {
@@ -20,11 +20,12 @@ type Conn9 struct {
 
 // Represents a server for 9p
 type Srv struct {
-	L		net.Listener
+	L			net.Listener
 	// Supported versions
 	Versions	[]string
 	// Default msize
 	Msize		uint32
+	Fs			FS
 }
 
 
@@ -56,11 +57,12 @@ func MkSrv(protocol string, port string, versions ...string) (Srv, error) {
 		return srv, err
 	}
 	Log = log.New(os.Stderr, "", log.Ldate | log.Ltime | log.Lshortfile)
+	Debug = true
 	srv.L = listener
 	srv.Versions = versions
 	// Sensible default
 	srv.Msize = 8216
-	Debug = true
+	srv.Fs = MkFs()
 
 	return srv, nil
 }
@@ -101,6 +103,7 @@ func (s *Srv) Handler(c Conn9) {
 		
 		// TODO - Find a way to ID client nicely
 		rmsg := MkRversion(msg)
+		//Log.Println(s.Fs.Get("/").Name())
 		
 		err := c.Send(rmsg)
 		if err != nil {
@@ -122,4 +125,3 @@ func (s *Srv) Handler(c Conn9) {
 		time.Sleep(5 * time.Millisecond)
 	}
 }
-
