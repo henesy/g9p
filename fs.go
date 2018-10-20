@@ -8,12 +8,12 @@ trie	"github.com/henesy/fstrie"
 type FS trie.Trie
 
 // Make a new Filesystem
-func MkFs() FS {
+func (srv *Srv) MkFs(root File) FS {
 	fs := FS(trie.New())
-	root := new(Dir9)
-	root.FileName = "/"
+	//root.FileName = "/"
 	fs.Root.Data = root
-	return fs
+	srv.Fs = fs
+	return srv.Fs
 }
 
 // Get a File by name and extract it

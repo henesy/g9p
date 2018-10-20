@@ -62,7 +62,7 @@ func MkSrv(protocol string, port string, versions ...string) (Srv, error) {
 	srv.Versions = versions
 	// Sensible default
 	srv.Msize = 8216
-	srv.Fs = MkFs()
+	//srv.Fs = MkFs()
 
 	return srv, nil
 }
